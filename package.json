@@ -1,0 +1,55 @@
+{
+  "name": "dsh-plugin-bronya-widget",
+  "version": "0.1.0",
+  "description": "A pixel-art Bronya in the bottom-right corner of the DSH main conversation: she types while awake, eats at meal times, sleeps at night, and gets visibly annoyed (or groggy) when the Captain talks to her mid-meal or mid-sleep.",
+  "type": "module",
+  "main": "lib/index.js",
+  "license": "MIT",
+  "author": "c137",
+  "keywords": [
+    "deepseek",
+    "harness",
+    "dsh-plugin",
+    "persona",
+    "widget",
+    "pixel-art"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/c137650/dsh-plugin-bronya-widget.git"
+  },
+  "homepage": "https://github.com/c137650/dsh-plugin-bronya-widget#readme",
+  "bugs": {
+    "url": "https://github.com/c137650/dsh-plugin-bronya-widget/issues"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ],
+      "platform": "web"
+    }
+  },
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": "./client/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "client",
+    "assets",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  }
+}
