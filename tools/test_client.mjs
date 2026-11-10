@@ -16,6 +16,7 @@ class FakeSource {
   constructor() {
     this.handlers = {}
     this.started = false
+    this.buffer = null
   }
   addEventListener(name, fn) {
     ;(this.handlers[name] ||= []).push(fn)
@@ -277,27 +278,23 @@ check('sleep 时仍是 sleep', spriteName() === 'sleep.webp', spriteName())
 stream3.getTracks()[0].stop()
 await new Promise((r) => setTimeout(r, 30))
 
-console.log('\n[16] 语音模块自己的开关:麦克风开关 / 播报开关 / 二者都开')
+console.log('\n[16] 语音模块的开关不算数(开关开着不等于正在说话)')
 await setState({ phase: 'wake', chat: false, activity: false, recentUser: false })
-check('都没开时是 game', spriteName() === 'game.webp', spriteName())
-
 storage.set('s2s.voice.mic', '1')
-await new Promise((r) => setTimeout(r, 1300))
-check('麦克风开关打开 -> voice', spriteName() === 'voice.webp', spriteName())
-
-storage.set('s2s.voice.mic', '0')
 storage.set('s2s.voice.enabled', '1')
 await new Promise((r) => setTimeout(r, 1300))
-check('播报开关打开 -> voice', spriteName() === 'voice.webp', spriteName())
-
-storage.set('s2s.voice.mic', '1')
-await new Promise((r) => setTimeout(r, 1300))
-check('二者都开 -> voice', spriteName() === 'voice.webp', spriteName())
-
+check('两个开关都写着 1,仍然是 game', spriteName() === 'game.webp', spriteName())
 storage.set('s2s.voice.mic', '0')
 storage.set('s2s.voice.enabled', '0')
-await new Promise((r) => setTimeout(r, 1300))
-check('都关掉 -> 回到 game', spriteName() === 'game.webp', spriteName())
+
+console.log('\n[17] 音频源没收到 ended 也不会一直挂着(时长兜底)')
+const s4 = new FakeAudioContext().createBufferSource()
+s4.buffer = { duration: 0.05 }
+s4.start()
+await new Promise((r) => setTimeout(r, 30))
+check('先切到 voice', spriteName() === 'voice.webp', spriteName())
+await new Promise((r) => setTimeout(r, 3200))
+check('兜底到点后自己退回 game', spriteName() === 'game.webp', spriteName())
 
 dispose()
 console.log('\n' + (failures === 0 ? '全部通过' : failures + ' 项失败'))

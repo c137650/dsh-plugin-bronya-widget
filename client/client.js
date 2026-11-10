@@ -25,30 +25,15 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-bronya-widget', factory: function
     return tag === 'textarea' || tag === 'input' || el.isContentEditable === true
   }
 
-  /** 语音模块自己的开关(它写在 localStorage 里,只读不改)。 */
-  function voiceFlag(key) {
-    try {
-      var raw = window.localStorage.getItem(key)
-      return raw === '1'
-    } catch (e) {
-      return false
-    }
-  }
-
   /**
-   * 语音交互是不是正在进行:
+   * 语音交互是不是真的在进行 —— 只看实测信号,不看开关:
    *   - 麦克风真的开着(浏览器里拿到了音频流);
-   *   - 语音模块的麦克风开关打开着;
-   *   - 语音模块的播报开关打开着;
-   *   - 此刻正在播报。
-   * 任何一个成立就算语音交互中。
+   *   - 此刻真的有声音在播。
+   * 语音模块的开关(localStorage 里的 s2s.voice.mic / s2s.voice.enabled)
+   * 不算:那个开关是"允许播报",不是"正在播报",拿它判断会让她一直举着耳机。
    */
   function voiceInteractionActive() {
-    if (activeMics > 0) return true
-    if (activeAudio > 0) return true
-    if (voiceFlag('s2s.voice.mic')) return true
-    if (voiceFlag('s2s.voice.enabled')) return true
-    return false
+    return activeMics > 0 || activeAudio > 0
   }
 
   /** 这份 getUserMedia 的约束里要不要音频。 */
@@ -111,6 +96,10 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-bronya-widget', factory: function
    * 语音插件的播报是用 AudioBufferSourceNode 播的,没有 <audio> 元素、
    * 也没有对外暴露 speaking,所以包一层 createBufferSource().start() 来数
    * "现在有几路声音在响"。结束用 ended 事件退回,不改对方任何行为。
+   *
+   * 兜底:ended 不一定会来(源被丢掉、上下文被挂起),所以 start 的时候顺手
+   * 读一下 buffer 时长,到点还没收到 ended 就自己减回去 —— 否则那个计数一旦
+   * 漏掉,她就永远举着耳机不放了。
    */
   function trackAudio(onChange) {
     if (audioPatched) return
@@ -124,17 +113,35 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-bronya-widget', factory: function
         try {
           var origStart = node.start
           var counted = false
+          var settled = false
+          function release() {
+            if (settled) return
+            settled = true
+            counted = false
+            activeAudio = Math.max(0, activeAudio - 1)
+            onChange()
+          }
           node.start = function () {
             if (!counted) {
               counted = true
+              settled = false
               activeAudio += 1
               try {
-                node.addEventListener('ended', function () {
-                  activeAudio = Math.max(0, activeAudio - 1)
-                  onChange()
-                })
+                node.addEventListener('ended', release)
               } catch (e) {
                 /* 老浏览器没有 addEventListener 就算了 */
+              }
+              // 时长兜底:buffer 已经挂上了才知道有多长
+              var dur = 0
+              try {
+                dur = node.buffer && typeof node.buffer.duration === 'number' ? node.buffer.duration : 0
+              } catch (e) {
+                dur = 0
+              }
+              if (dur > 0) {
+                window.setTimeout(release, dur * 1000 + 3000)
+              } else {
+                window.setTimeout(release, 5 * 60 * 1000)
               }
             }
             var result = origStart.apply(this, arguments)
@@ -335,6 +342,22 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-bronya-widget', factory: function
     }
 
     function setState(name) {
+      // 排查用:控制台敲 __bronyaWidget 就能看到她是按什么判断的
+      try {
+        var d = lastData || {}
+        window.__bronyaWidget = {
+          state: name,
+          phase: d.phase,
+          chat: d.chat,
+          activity: d.activity,
+          recentUser: d.recentUser,
+          typing: Date.now() < typingUntil,
+          audio: activeAudio,
+          mic: activeMics,
+        }
+      } catch (e) {
+        /* 无所谓 */
+      }
       if (!img || name === current) return
       current = name
       img.src = spriteUrl(name)
