@@ -1,0 +1,15 @@
+node_modules/
+__pycache__/
+*.pyc
+
+# 抽帧缓存和预览图不进仓库(加起来一百多 MB)
+tools/src/
+tools/preview/
+tools/backup-*/
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
