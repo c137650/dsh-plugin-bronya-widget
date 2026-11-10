@@ -1,0 +1,42 @@
+{
+ "wake": {
+  "file": "wake.webp",
+  "frames": 40,
+  "delay": 125
+ },
+ "eat": {
+  "file": "eat.webp",
+  "frames": 40,
+  "delay": 125
+ },
+ "angry": {
+  "file": "angry.webp",
+  "frames": 41,
+  "delay": 125
+ },
+ "sleep": {
+  "file": "sleep.webp",
+  "frames": 12,
+  "delay": 160
+ },
+ "wakeup": {
+  "file": "wakeup.webp",
+  "frames": 12,
+  "delay": 160
+ },
+ "angrytype": {
+  "file": "angrytype.webp",
+  "frames": 24,
+  "delay": 110
+ },
+ "game": {
+  "file": "game.webp",
+  "frames": 45,
+  "delay": 95
+ },
+ "voice": {
+  "file": "voice.webp",
+  "frames": 21,
+  "delay": 110
+ }
+}
