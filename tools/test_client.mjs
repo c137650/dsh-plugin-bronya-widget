@@ -89,8 +89,10 @@ let micRequests = 0
 function fakeStream() {
   const track = {
     stopped: false,
+    readyState: 'live',
     stop() {
       this.stopped = true
+      this.readyState = 'ended'
     },
   }
   return {
@@ -295,6 +297,15 @@ await new Promise((r) => setTimeout(r, 30))
 check('先切到 voice', spriteName() === 'voice.webp', spriteName())
 await new Promise((r) => setTimeout(r, 3200))
 check('兜底到点后自己退回 game', spriteName() === 'game.webp', spriteName())
+
+console.log('\n[18] 麦克风流被丢掉、没显式 stop() 时,也会自己收回')
+await setState({ phase: 'wake', chat: false, activity: false, recentUser: false })
+const dropped = await navigator.mediaDevices.getUserMedia({ audio: true })
+await new Promise((r) => setTimeout(r, 30))
+check('拿到流就切到 voice', spriteName() === 'voice.webp', spriteName())
+dropped.getTracks()[0].readyState = 'ended' // 只把轨弄成 ended,不调用 stop()
+await new Promise((r) => setTimeout(r, 1300))
+check('下一轮扫描后退回 game', spriteName() === 'game.webp', spriteName())
 
 dispose()
 console.log('\n' + (failures === 0 ? '全部通过' : failures + ' 项失败'))

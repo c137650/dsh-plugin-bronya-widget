@@ -35,14 +35,32 @@
 
 | 信号 | 怎么认的 |
 |---|---|
-| 麦克风真的开着 | 浏览器里拿到了音频流(`getUserMedia({audio})` 开了、轨道还没 stop) |
+| 麦克风真的开着 | 浏览器里拿到了音频流(`getUserMedia({audio})` 开了、轨还没 stop) |
 | 此刻正在播报 | `AudioContext` 里有 `AudioBufferSourceNode` 在播 |
 
 摄像头那条路走本地 bridge、不经过 getUserMedia,所以不会混进来。
-播报那个计数还带时长兜底:`start()` 时读一下 buffer 时长,到点没收到 `ended`
-就自己减回去——否则计数一旦漏掉,她就永远举着耳机不放了。
+
+两个计数都带兜底,避免"漏一次就永远举着耳机":
+
+- 麦克风:除了包住 `track.stop()`,每轮判断前还会扫一遍,所有轨都变成
+  `readyState === 'ended'` 就当归还(流被丢掉但没显式停的情况也能收回来);
+- 播报:`start()` 时读一下 buffer 时长,到点没收到 `ended` 就自己减回去;
+  读不到时长就按 60 秒兜底。
 
 这一条优先级高于敲键盘和打游戏,但只在清醒时生效——睡觉/吃饭有各自被打扰的表情。
+
+## 排查
+
+客户端每次定姿势都会把自己的判断依据报给宿主,所以出问题时直接读一次接口就知道卡在哪:
+
+```sh
+curl http://127.0.0.1:<端口>/bronya-widget/state
+```
+
+`client` 字段是浏览器最近一次上报的:`{state, phase, chat, activity, recentUser, typing, audio, mic, micStreams}`。
+`audio` / `mic` 就是上面那两个计数——它们应该是 0;如果一直不为 0,说明有东西没归还。
+
+浏览器控制台里敲 `__bronyaWidget` 也能看到同一份数据。
 
 ## "活动正在执行"怎么认
 

@@ -184,6 +184,34 @@ writeStatus({ state: 'loaded', phase: 'wake', updatedAt: new Date().toISOString(
 st = await getState()
 check('刚说完话 recentUser = true', st.recentUser === true, String(st.recentUser))
 
+console.log('\n[13] 客户端自检数据能上报、也能从 state 里读回来')
+async function postDebug(payload) {
+  const handlers = {}
+  const req = {
+    method: 'POST',
+    headers: {},
+    on(name, fn) {
+      handlers[name] = fn
+    },
+    destroy() {},
+  }
+  const res = { status: 0, writeHead(s) { res.status = s }, end() {} }
+  routes['/bronya-widget/debug'].handler(req, res)
+  handlers['data'](Buffer.from(JSON.stringify(payload)))
+  handlers['end']()
+  return res
+}
+st = await getState()
+check('还没上报时 client 是 null', st.client === null, String(st.client))
+await postDebug({ state: 'voice', phase: 'wake', audio: 1, mic: 0 })
+st = await getState()
+check('上报后读得到', st.client && st.client.state === 'voice', JSON.stringify(st.client))
+check('audio 计数在', st.client && st.client.audio === 1, String(st.client && st.client.audio))
+check('带了 receivedAt', st.client && typeof st.client.receivedAt === 'number', String(st.client && st.client.receivedAt))
+
+const badRes = await postDebug({})  // 空对象也该收下,不报错
+check('空上报不炸', badRes.status === 204, String(badRes.status))
+
 rmSync(home, { recursive: true, force: true })
 console.log('\n' + (failures === 0 ? '全部通过' : failures + ' 项失败'))
 process.exit(failures === 0 ? 0 : 1)

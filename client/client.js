@@ -54,7 +54,42 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-bronya-widget', factory: function
    * 语音插件的麦克风是"点一次开始持续监听",浏览器侧的信号就是
    * getUserMedia(audio) —— 开了就 +1,轨道 stop() 就 -1。
    * 摄像头那条路走的是本地 bridge,不经过 getUserMedia,所以不会混进来。
+   *
+   * 兜底:除了包住 track.stop(),每条流还进 micStreams 表,每轮判断前扫一遍,
+   * 所有轨都变成 ended 了就当它还回去了 —— 只靠 stop() 会漏掉"流被丢掉但没
+   * 显式停"的情况,那一次漏掉就是她永远举着耳机。
    */
+  var micStreams = []
+
+  function releaseMic(entry) {
+    if (entry.released) return false
+    entry.released = true
+    activeMics = Math.max(0, activeMics - 1)
+    return true
+  }
+
+  /** 把已经全部结束的麦克风流清掉。 */
+  function sweepMics() {
+    var changed = false
+    for (var i = micStreams.length - 1; i >= 0; i--) {
+      var entry = micStreams[i]
+      if (entry.released) {
+        micStreams.splice(i, 1)
+        continue
+      }
+      var tracks = entry.tracks
+      var allEnded = tracks.length > 0
+      for (var k = 0; k < tracks.length; k++) {
+        if (tracks[k].readyState !== 'ended') {
+          allEnded = false
+          break
+        }
+      }
+      if (allEnded && releaseMic(entry)) changed = true
+    }
+    return changed
+  }
+
   function trackMic(onChange) {
     if (micPatched) return
     try {
@@ -66,18 +101,15 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-bronya-widget', factory: function
         return orig(constraints).then(function (stream) {
           if (!audio) return stream
           activeMics += 1
-          onChange()
-          var released = false
           var tracks = typeof stream.getTracks === 'function' ? stream.getTracks() : []
+          var entry = { tracks: tracks, released: false }
+          micStreams.push(entry)
+          onChange()
           for (var i = 0; i < tracks.length; i++) {
             (function (track) {
               var origStop = track.stop.bind(track)
               track.stop = function () {
-                if (!released) {
-                  released = true
-                  activeMics = Math.max(0, activeMics - 1)
-                  onChange()
-                }
+                if (releaseMic(entry)) onChange()
                 return origStop()
               }
             })(tracks[i])
@@ -141,7 +173,7 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-bronya-widget', factory: function
               if (dur > 0) {
                 window.setTimeout(release, dur * 1000 + 3000)
               } else {
-                window.setTimeout(release, 5 * 60 * 1000)
+                window.setTimeout(release, 60 * 1000)
               }
             }
             var result = origStart.apply(this, arguments)
@@ -168,7 +200,7 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-bronya-widget', factory: function
     if (phase === 'sleep') return engaged ? 'wakeup' : 'sleep'
     if (phase === 'eat') return engaged ? 'angry' : 'eat'
 
-    // 清醒:语音交互中(麦克风开着 / 播报开着 / 正在播报)-> 拿起耳机说话
+    // 清醒:语音交互中(麦克风开着 / 正在播报)-> 拿起耳机说话
     if (voiceInteractionActive()) return 'voice'
     // 她自己在跑自主活动的时候被打扰 -> 生气敲键盘;
     // 没事干又没人理她 -> 摸鱼打游戏;其余时候敲键盘。
@@ -228,6 +260,7 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-bronya-widget', factory: function
     var dragging = false
     var dragOffset = { x: 0, y: 0 }
     var lastData = null
+    var lastReportAt = 0
 
     function place(p) {
       pos = clamp(p)
@@ -323,44 +356,65 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-bronya-widget', factory: function
       }
       window.addEventListener('resize', onResize)
       document.addEventListener('input', onInput, true)
-      trackAudio(function () {
-        if (lastData) setState(stateOf(lastData))
-      })
-      trackMic(function () {
-        if (lastData) setState(stateOf(lastData))
-      })
+      trackAudio(evaluate)
+      trackMic(evaluate)
 
       setState('wake')
       poll()
+    }
+
+    /** 重算一次:先清掉已经结束的麦克风流,再按当前数据定姿势。 */
+    function evaluate() {
+      sweepMics()
+      if (!lastData) return
+      setState(stateOf(lastData))
     }
 
     function onInput(e) {
       if (!isTyping(e.target)) return
       var wasIdle = Date.now() >= typingUntil
       typingUntil = Date.now() + TYPING_GRACE_MS
-      if (wasIdle && lastData) setState(stateOf(lastData))
+      if (wasIdle) evaluate()
     }
 
     function setState(name) {
+      var d = lastData || {}
+      var info = {
+        state: name,
+        phase: d.phase,
+        chat: d.chat,
+        activity: d.activity,
+        recentUser: d.recentUser,
+        typing: Date.now() < typingUntil,
+        audio: activeAudio,
+        mic: activeMics,
+        micStreams: micStreams.length,
+      }
       // 排查用:控制台敲 __bronyaWidget 就能看到她是按什么判断的
       try {
-        var d = lastData || {}
-        window.__bronyaWidget = {
-          state: name,
-          phase: d.phase,
-          chat: d.chat,
-          activity: d.activity,
-          recentUser: d.recentUser,
-          typing: Date.now() < typingUntil,
-          audio: activeAudio,
-          mic: activeMics,
-        }
+        window.__bronyaWidget = info
       } catch (e) {
         /* 无所谓 */
       }
+      reportDebug(info)
       if (!img || name === current) return
       current = name
       img.src = spriteUrl(name)
+    }
+
+    /** 把自检数据报给宿主,排查时直接读 /bronya-widget/state 里的 client 字段。 */
+    function reportDebug(info) {
+      try {
+        if (Date.now() - lastReportAt < 2000) return
+        lastReportAt = Date.now()
+        fetch('/bronya-widget/debug', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(info),
+        }).catch(function () {})
+      } catch (e) {
+        /* 报不上去不影响显示 */
+      }
     }
 
     async function poll() {
@@ -370,7 +424,7 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-bronya-widget', factory: function
         var data = await res.json()
         if (data && data.ok) {
           lastData = data
-          setState(stateOf(data))
+          evaluate()
         }
       } catch (e) {
         /* 网络抖动就保持当前状态 */
